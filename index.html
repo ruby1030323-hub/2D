@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>轉生史萊姆：終端機之戰</title>
+    <style>
+        /* ================= 核心主題與全域設定 ================= */
+        :root {
+            --term-green: #0f0;
+            --term-bg: #000;
+            --term-red: #f00;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--term-bg);
+            color: var(--term-green);
+            font-family: 'Courier New', Courier, monospace;
+            height: 100dvh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* CRT 螢幕掃描線濾鏡 */
+        #crt-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 9999;
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 255, 0, 0.05) 50%
+            );
+            background-size: 100% 4px;
+        }
+
+        /* ================= 前言故事 (Prologue) ================= */
+        #prologue-screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            background: black;
+            padding: 20px;
+            text-align: center;
+        }
+        #prologue-img {
+            max-width: 250px;
+            margin-bottom: 20px;
+            transition: opacity 1s ease, filter 1s ease;
+        }
+        .glow-green { filter: drop-shadow(0 0 15px var(--term-green)); transform: scaleX(-1); }
+        .glow-red-glitch { filter: drop-shadow(0 0 20px var(--term-red)) hue-rotate(-20deg) contrast(1.5); }
+        #prologue-text { font-size: 1.2rem; white-space: pre-wrap; min-height: 120px; line-height: 1.6; }
+
+        /* ================= 主遊戲容器 ================= */
+        #game-screen {
+            display: none; 
+            flex: 1;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* 戰鬥區 (上半部) */
+        #battle-area {
+            flex: 1.2;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-bottom: 2px solid var(--term-green);
+            padding: 20px;
+            overflow: hidden;
+            position: relative;
+        }
+        .character-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 45%;
+        }
+        .hp-container {
+            width: 100%;
+            border: 1px solid var(--term-green);
+            height: 24px;
+            margin-bottom: 10px;
+            position: relative;
+            background: #050505;
+        }
+        .hp-bar {
+            height: 100%;
+            background-color: var(--term-green);
+            transition: width 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+            width: 100%;
+        }
+        .hp-text { position: absolute; inset: 0; text-align: center; line-height: 24px; font-weight: bold; color: black; z-index: 2; }
+        
+        /* 角色圖片設定 */
+        .sprite-wrapper { position: relative; transition: transform 0.1s; }
+        .boss-sprite { width: 180px; filter: drop-shadow(0 0 15px var(--term-red)); }
+        /* 利姆路水平翻轉面向右邊 */
+        .player-sprite { width: 180px; transform: scaleX(-1); filter: drop-shadow(0 0 10px var(--term-green)); } 
+
+        /* 終端機對話框 (下半部) */
+        #terminal-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            background: #050505;
+        }
+        /* 按鈕區 (在文字上方) */
+        #action-menu {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+        button {
+            background: transparent;
+            color: var(--term-green);
+            border: 1px solid var(--term-green);
+            padding: 12px 5px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover:not(:disabled) { background: var(--term-green); color: black; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; border-style: dotted; }
+
+        /* 文字日誌區 */
+        #log-container {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #111;
+            padding: 10px;
+            background: rgba(0, 20, 0, 0.2);
+        }
+        .log-msg { margin-bottom: 6px; border-left: 3px solid transparent; padding-left: 8px; }
+        .log-sys { color: var(--term-green); border-color: var(--term-green); }
+        .log-dmg { color: #ff3333; border-color: #ff3333; font-weight: bold; }
+
+        /* ================= 動畫特效 ================= */
+        /* 電腦版衝刺 */
+        @keyframes dash-right { 50% { transform: translateX(120px) scale(1.2); } }
+        @keyframes dash-left { 50% { transform: translateX(-120px) scale(1.2); } }
+        /* 手機版衝刺 */
+        @keyframes dash-down { 50% { transform: translateY(100px) scale(1.2); } }
+        @keyframes dash-up { 50% { transform: translateY(-100px) scale(1.2); } }
+
+        /* 受擊閃爍亂碼 */
+        @keyframes glitch-fx {
+            0% { transform: translate(0); filter: none; }
+            25% { transform: translate(-15px, 5px) skew(15deg); filter: invert(1) brightness(2); }
+            50% { transform: translate(15px, -5px) skew(-15deg); filter: hue-rotate(180deg); }
+            100% { transform: translate(0); filter: none; }
+        }
+
+        /* 戰敗滑出 */
+        @keyframes death-fall {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(150px); opacity: 0; filter: grayscale(1); }
+        }
+
+        /* ================= RWD ================= */
+        @media (max-width: 768px) {
+            #battle-area { flex-direction: column; justify-content: center; gap: 20px; }
+            .character-box { width: 90%; }
+            .sprite-wrapper img { width: 140px; }
+            #action-menu { grid-template-columns: 1fr 1fr; }
+            button { font-size: 0.8rem; padding: 15px 2px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="crt-overlay"></div>
+
+    <div id="prologue-screen">
+        <img id="prologue-img" src="" alt="Prologue Asset" style="display:none;">
+        <div id="prologue-text"></div>
+    </div>
+
+    <div id="game-screen">
+        <div id="battle-area">
+            <div id="boss-box" class="character-box">
+                <div style="color: var(--term-red); margin-bottom: 5px;">[TARGET: MILIM_NAVA]</div>
+                <div class="hp-container">
+                    <div id="boss-hp-bar" class="hp-bar" style="background-color: var(--term-red);"><div id="boss-hp-text" class="hp-text">10000/10000</div></div>
+                </div>
+                <div id="boss-wrapper" class="sprite-wrapper">
+                    <img src="https://raw.githubusercontent.com/ruby1030323-hub/2D/main/1032.png" class="boss-sprite">
+                </div>
+            </div>
+
+            <div id="player-box" class="character-box">
+                <div style="margin-bottom: 5px;">[USER: RIMURU_TEMPEST]</div>
+                <div class="hp-container">
+                    <div id="player-hp-bar" class="hp-bar"><div id="player-hp-text" class="hp-text">150/150</div></div>
+                </div>
+                <div id="player-wrapper" class="sprite-wrapper">
+                    <img src="https://raw.githubusercontent.com/ruby1030323-hub/2D/main/103.png" class="player-sprite">
+                </div>
+            </div>
+        </div>
+
+        <div id="terminal-area">
+            <nav id="action-menu">
+                <button id="btn-attack" onclick="executeAction('attack')">std::attack()</button>
+                <button id="btn-rm" onclick="executeAction('rm')">sudo rm -rf /</button>
+                <button id="btn-ctrlc" onclick="executeAction('ctrlc')">Ctrl+C (Break)</button>
+                <button id="btn-heal" onclick="executeAction('heal')">debug_heal()</button>
+            </nav>
+            <div id="log-container"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
